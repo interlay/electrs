@@ -4,14 +4,12 @@ use std::collections::{BTreeSet, HashMap};
 use std::sync::{Arc, RwLock, RwLockReadGuard};
 use std::time::{Duration, Instant};
 
-use crate::chain::{Network, OutPoint, Transaction, TxOut};
+use crate::chain::{Network, OutPoint, Transaction, TxOut, Txid};
 use crate::config::Config;
 use crate::daemon::Daemon;
 use crate::errors::*;
 use crate::new_index::{ChainQuery, Mempool, ScriptStats, SpendingInput, Utxo};
 use crate::util::{is_spendable, BlockId, Bytes, TransactionStatus};
-
-use bitcoin::Txid;
 
 #[cfg(feature = "liquid")]
 use crate::{
@@ -165,7 +163,7 @@ impl Query {
     }
 
     pub fn estimate_fee(&self, conf_target: u16) -> Option<f64> {
-        if self.config.network_type == Network::Regtest {
+        if self.config.network_type.is_regtest() {
             return self.get_relayfee().ok();
         }
         if let (ref cache, Some(cache_time)) = *self.cached_estimates.read().unwrap() {
@@ -245,20 +243,20 @@ impl Query {
         start_index: usize,
         limit: usize,
         sorting: AssetSorting,
-    ) -> Result<Vec<LiquidAsset>> {
+    ) -> Result<(usize, Vec<LiquidAsset>)> {
         let asset_db = match &self.asset_db {
-            None => return Ok(vec![]),
+            None => return Ok((0, vec![])),
             Some(db) => db.read().unwrap(),
         };
-        Ok(asset_db
-            .list(start_index, limit, sorting)
+        let (total_num, results) = asset_db.list(start_index, limit, sorting);
+        // Attach on-chain information alongside the registry metadata
+        let results = results
             .into_iter()
-            .filter_map(|(asset_id, metadata)| {
-                // Attach on-chain information alongside the registry metadata
-                lookup_asset(&self, None, asset_id, Some(metadata))
-                    .ok()
-                    .flatten()
+            .map(|(asset_id, metadata)| {
+                Ok(lookup_asset(&self, None, asset_id, Some(metadata))?
+                    .chain_err(|| "missing registered asset")?)
             })
-            .collect())
+            .collect::<Result<Vec<_>>>()?;
+        Ok((total_num, results))
     }
 }

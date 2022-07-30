@@ -5,7 +5,7 @@ use std::{cmp, fs, path, thread};
 
 use serde_json::Value as JsonValue;
 
-use elements::bitcoin_hashes::hex::FromHex;
+use bitcoin::hashes::hex::FromHex;
 use elements::AssetId;
 
 use crate::errors::*;
@@ -35,14 +35,22 @@ impl AssetRegistry {
             .map(|(_, metadata)| metadata)
     }
 
-    pub fn list(&self, start_index: usize, limit: usize, sorting: AssetSorting) -> Vec<AssetEntry> {
+    pub fn list(
+        &self,
+        start_index: usize,
+        limit: usize,
+        sorting: AssetSorting,
+    ) -> (usize, Vec<AssetEntry>) {
         let mut assets: Vec<AssetEntry> = self
             .assets_cache
             .iter()
             .map(|(asset_id, (_, metadata))| (asset_id, metadata))
             .collect();
         assets.sort_by(sorting.as_comparator());
-        assets.into_iter().skip(start_index).take(limit).collect()
+        (
+            assets.len(),
+            assets.into_iter().skip(start_index).take(limit).collect(),
+        )
     }
 
     pub fn fs_sync(&mut self) -> Result<()> {
@@ -144,7 +152,7 @@ impl AssetSorting {
                 Box::new(|a, b| lc_cmp(&a.1.name, &b.1.name).then_with(|| a.0.cmp(b.0)))
             }
             AssetSortField::Domain => Box::new(|a, b| a.1.domain().cmp(&b.1.domain())),
-            AssetSortField::Ticker => Box::new(|a, b| lc_cmp(&a.1.ticker, &b.1.ticker)),
+            AssetSortField::Ticker => Box::new(|a, b| lc_cmp_opt(&a.1.ticker, &b.1.ticker)),
         };
 
         match self.1 {
@@ -175,4 +183,10 @@ impl AssetSorting {
 
 fn lc_cmp(a: &str, b: &str) -> cmp::Ordering {
     a.to_lowercase().cmp(&b.to_lowercase())
+}
+
+fn lc_cmp_opt(a: &Option<String>, b: &Option<String>) -> cmp::Ordering {
+    a.as_ref()
+        .map(|a| a.to_lowercase())
+        .cmp(&b.as_ref().map(|b| b.to_lowercase()))
 }
