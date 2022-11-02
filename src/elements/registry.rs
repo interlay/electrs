@@ -184,6 +184,7 @@ impl AssetSorting {
 fn lc_cmp(a: &str, b: &str) -> cmp::Ordering {
     a.to_lowercase().cmp(&b.to_lowercase())
 }
+
 fn lc_cmp_opt(a: &Option<String>, b: &Option<String>) -> cmp::Ordering {
     a.as_ref()
         .map(|a| a.to_lowercase())
