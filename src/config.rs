@@ -39,7 +39,7 @@ pub struct Config {
     pub utxos_limit: usize,
     pub electrum_txs_limit: usize,
     pub electrum_banner: String,
-
+    pub ordinals_endpoint: String,
     #[cfg(feature = "liquid")]
     pub parent_network: BNetwork,
     #[cfg(feature = "liquid")]
@@ -181,7 +181,13 @@ impl Config {
                     .long("electrum-banner")
                     .help("Welcome banner for the Electrum server, shown in the console to clients.")
                     .takes_value(true)
-            );
+            ).arg(
+                Arg::with_name("ordinals_endpoint")
+                    .long("ordinals-endpoint")
+                    .help("The ordinals endpoint url where the client should be connected. Default 'http://0.0.0.0:80'")
+                    .takes_value(true)
+            )
+            ;
 
         #[cfg(unix)]
         let args = args.arg(
@@ -368,6 +374,10 @@ impl Config {
             || format!("Welcome to electrs-esplora {}", ELECTRS_VERSION),
             |s| s.into(),
         );
+        let ordinals_endpoint = m.value_of("ordinals_endpoint").map_or_else(
+            || format!("http://0.0.0.0:80"),
+            |s| s.into(),
+        );
 
         #[cfg(feature = "electrum-discovery")]
         let electrum_public_hosts = m
@@ -394,6 +404,7 @@ impl Config {
             electrum_rpc_addr,
             electrum_txs_limit: value_t_or_exit!(m, "electrum_txs_limit", usize),
             electrum_banner,
+            ordinals_endpoint,
             http_addr,
             http_socket_file,
             monitoring_addr,

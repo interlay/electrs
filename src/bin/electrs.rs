@@ -98,8 +98,11 @@ fn run_server(config: Arc<Config>) -> Result<()> {
         asset_db,
     ));
 
+    let ordinal_base_url = config.ordinals_endpoint.clone();
+    let ordinal_client = Arc::new(reqwest::Client::builder().build().unwrap());
+
     // TODO: configuration for which servers to start
-    let rest_server = rest::start(Arc::clone(&config), Arc::clone(&query));
+    let rest_server = rest::start(Arc::clone(&config), Arc::clone(&query), ordinal_base_url.to_string(), ordinal_client);
     let electrum_server = ElectrumRPC::start(Arc::clone(&config), Arc::clone(&query), &metrics);
 
     loop {

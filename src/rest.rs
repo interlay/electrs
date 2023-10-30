@@ -509,28 +509,32 @@ fn prepare_txs(
 }
 
 #[tokio::main]
-async fn run_server(config: Arc<Config>, query: Arc<Query>, rx: oneshot::Receiver<()>) {
+async fn run_server(config: Arc<Config>, query: Arc<Query>, rx: oneshot::Receiver<()>, ordinal_base_url: String, ordinal_client: Arc<reqwest::Client>) {
     let addr = &config.http_addr;
     let socket_file = &config.http_socket_file;
-
     let config = Arc::clone(&config);
     let query = Arc::clone(&query);
+    let ordinal_client = Arc::clone(&ordinal_client);
+    let ordinal_base_url = ordinal_base_url.clone();
 
     let make_service_fn_inn = || {
         let query = Arc::clone(&query);
         let config = Arc::clone(&config);
+        let ordinal_client = Arc::clone(&ordinal_client);
+        let ordinal_base_url = ordinal_base_url.clone();
 
         async move {
             Ok::<_, hyper::Error>(service_fn(move |req| {
                 let query = Arc::clone(&query);
                 let config = Arc::clone(&config);
-
+                let ordinal_client = Arc::clone(&ordinal_client);
+                let ordinal_base_url = ordinal_base_url.clone();
                 async move {
                     let method = req.method().clone();
                     let uri = req.uri().clone();
                     let body = hyper::body::to_bytes(req.into_body()).await?;
 
-                    let mut resp = handle_request(method, uri, body, &query, &config)
+                    let mut resp = handle_request(method, uri, body, &query, &config, &ordinal_client,&ordinal_base_url).await
                         .unwrap_or_else(|err| {
                             warn!("{:?}", err);
                             Response::builder()
@@ -589,13 +593,13 @@ async fn run_server(config: Arc<Config>, query: Arc<Query>, rx: oneshot::Receive
     }
 }
 
-pub fn start(config: Arc<Config>, query: Arc<Query>) -> Handle {
+pub fn start(config: Arc<Config>, query: Arc<Query>, ordinal_base_url: String, ordinal_client: Arc<reqwest::Client>) -> Handle {
     let (tx, rx) = oneshot::channel::<()>();
 
     Handle {
         tx,
         thread: thread::spawn(move || {
-            run_server(config, query, rx);
+            run_server(config, query, rx, ordinal_base_url.clone(), ordinal_client);
         }),
     }
 }
@@ -612,12 +616,30 @@ impl Handle {
     }
 }
 
-fn handle_request(
+async fn handle_inscription_request(url: String, ordinal_client: &Arc<reqwest::Client>) -> Result<Response<Body>, HttpError> {
+    let response = ordinal_client
+        .get(url)
+        .header("Accept", "application/json")
+        .send()
+        .await.map_err(|err| HttpError::from(err.to_string()))?;
+
+    if response.status().is_success() {
+        let response_text = response.text().await.map_err(|err| HttpError::from(err.to_string()))?;
+        return json_response(response_text, TTL_LONG);
+    }
+    else {
+        return Err(HttpError::from(format!("Bad Request: {:?}",response.status())));
+    }
+}
+
+async fn handle_request(
     method: Method,
     uri: hyper::Uri,
     body: hyper::body::Bytes,
     query: &Query,
     config: &Config,
+    ordinal_client: &Arc<reqwest::Client>,
+    ordinal_base_url: &str
 ) -> Result<Response<Body>, HttpError> {
     // TODO it looks hyper does not have routing and query parsing :(
     let path: Vec<&str> = uri.path().split('/').skip(1).collect();
@@ -637,6 +659,31 @@ fn handle_request(
         path.get(3),
         path.get(4),
     ) {
+        (&Method::GET, Some(&"inscriptionfromid"), Some(inscription_id), None, None, None) => {
+            let url = format!("{}/inscription/{}", ordinal_base_url,inscription_id);
+            info!("get inscription by id {:?}",url);
+            handle_inscription_request(url,ordinal_client).await
+        },
+        (&Method::GET, Some(&"inscriptions"), None, None, None, None) => {
+            let url = format!("{}/inscriptions", ordinal_base_url);
+            info!("get all inscriptions {:?}",url);
+            handle_inscription_request(url,ordinal_client).await
+        },
+        (&Method::GET, Some(&"inscriptionsfromblock"), Some(blockheight), None, None, None) => {
+            let url = format!("{}/inscriptions/block/{}", ordinal_base_url,blockheight);
+            info!("get inscription by block number {:?}",url);
+            handle_inscription_request(url,ordinal_client).await
+        },
+        (&Method::GET, Some(&"inscriptionsfromutxo"), Some(utxo), None, None, None) => {
+            let url = format!("{}/output/{}", ordinal_base_url,utxo);
+            info!("get inscription from utxo {:?}",url);
+            handle_inscription_request(url,ordinal_client).await
+        },
+        (&Method::GET, Some(&"satwithinscription"), Some(sat), None, None, None) => {
+            let url = format!("{}/sat/{}", ordinal_base_url,sat);
+            info!("get inscription from sat {:?}",url);
+            handle_inscription_request(url,ordinal_client).await
+        },
         (&Method::GET, Some(&"blocks"), Some(&"tip"), Some(&"hash"), None, None) => http_message(
             StatusCode::OK,
             query.chain().best_hash().to_hex(),
