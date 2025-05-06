@@ -316,7 +316,11 @@ impl Daemon {
         loop {
             let info = daemon.getblockchaininfo()?;
 
-            if !info.initialblockdownload.unwrap_or(false) && info.blocks == info.headers {
+            // NOTE: initial_block_download is always true on regtest
+            // but testnet and mainnet never reach 100% verification
+            // Note that `initial_block_download` will return false before syncing is done.
+            // When it's done downloading but still processing, `info.blocks` will be less than `info.headers`.
+            if (!info.initialblockdownload.unwrap_or(false) || info.verificationprogress.eq(&1.0)) && info.blocks >= info.headers {
                 break;
             }
 
