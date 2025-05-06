@@ -366,7 +366,14 @@ impl Daemon {
         loop {
             let info = daemon.getblockchaininfo()?;
 
-            if !info.initialblockdownload.unwrap_or(false) && info.blocks == info.headers {
+            // NOTE: initial_block_download is always true on regtest, so we check
+            // verificationprogress instead
+            let initial_block_download = match network {
+                Network::Regtest => info.verificationprogress < 1.0,
+                _ => info.initialblockdownload.unwrap_or(false),
+            };
+
+            if !initial_block_download && info.blocks == info.headers {
                 break;
             }
 
